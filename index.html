@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>국방기술과제 인벤토리</title>
+<meta name="description" content="국방기술기획서(2022~2026년판)에 수록된 국방기술과제를 미 연방정부 AI Use Case Inventory 지침 형식을 참고해 정리한 인벤토리 사이트">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>국방기술과제 인벤토리</h1>
+        <p class="tagline">국방기술기획서(’22~’26년판) 수록 과제 현황 · 미 연방 AI Use Case Inventory 지침 준용</p>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="주요 메뉴">
+      <a href="#dashboard" data-tab="dashboard">대시보드</a>
+      <a href="#inventory" data-tab="inventory">과제 인벤토리</a>
+      <a href="#taxonomy" data-tab="taxonomy">국방전략기술 체계</a>
+      <a href="#changes" data-tab="changes">연도별 변화</a>
+      <a href="#about" data-tab="about">데이터 안내</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="view-dashboard" class="view" hidden>
+    <div class="stat-row" id="stat-tiles"></div>
+    <div class="grid-2">
+      <figure class="card"><figcaption>국방전략기술 분야별 과제 수 <small>(현재 값 기준, 미연계 과제 제외)</small></figcaption><div id="chart-field"></div></figure>
+      <figure class="card"><figcaption>사업구분별 과제 수</figcaption><div id="chart-type"></div></figure>
+      <figure class="card"><figcaption>기획서 연도별 수록 과제 수 <small>(추출 범위 내)</small></figcaption><div id="chart-edition"></div></figure>
+      <figure class="card"><figcaption>분야별 예산 합계 <small>(’25-’39 기획서 과제 목록, 억원)</small></figcaption><div id="chart-budget"></div></figure>
+    </div>
+    <div class="grid-2">
+      <figure class="card"><figcaption>인공지능 분야 과제 — 국방전략기술별</figcaption><div id="chart-ai"></div></figure>
+      <div class="card" id="ai-lv4"></div>
+    </div>
+  </section>
+
+  <section id="view-inventory" class="view" hidden>
+    <div class="filter-row" role="search">
+      <input id="q" type="search" placeholder="과제명 · 세부기술 · 핵심기술 검색" aria-label="검색">
+      <select id="f-field" aria-label="국방전략기술 분야"><option value="">분야 전체</option></select>
+      <select id="f-stech" aria-label="국방전략기술"><option value="">국방전략기술 전체</option></select>
+      <select id="f-type" aria-label="사업구분"><option value="">사업구분 전체</option></select>
+      <select id="f-status" aria-label="상태"><option value="">상태 전체</option></select>
+      <select id="f-edition" aria-label="수록 기획서"><option value="">수록 기획서 전체</option></select>
+      <label class="chk"><input type="checkbox" id="f-latest"> ’25-’39 과제 목록 수록만</label>
+      <button id="f-reset" type="button" class="btn-ghost">초기화</button>
+    </div>
+    <div class="table-meta">
+      <span id="count"></span>
+      <span class="dl">다운로드: <a href="data/inventory.csv" download>CSV</a> · <a href="data/inventory.json" download>JSON</a> · <a href="data/taxonomy.json" download>기술체계 JSON</a></span>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl" class="inv">
+        <thead><tr>
+          <th data-k="inventory_id">ID</th>
+          <th data-k="name">과제명</th>
+          <th data-k="program_type">사업구분</th>
+          <th data-k="start_year">기간</th>
+          <th data-k="lead_type">주관</th>
+          <th data-k="budget_100m_krw" class="num">예산(억원)</th>
+          <th data-k="field">분야 / 국방전략기술</th>
+          <th data-k="status">상태</th>
+          <th data-k="latest_edition">수록</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="pager"><button id="more" type="button" class="btn">더 보기</button></div>
+  </section>
+
+  <section id="view-taxonomy" class="view" hidden>
+    <p class="lead">10대 분야 30개 국방전략기술(Level 1) → 세부기술(Level 2) → 구성기술(Level 3, 인공지능 분야는 ’26-’40 기획서 기술트리) 순으로 정리했습니다. 각 세부기술에 연계된 과제를 함께 표시합니다.</p>
+    <div id="tax"></div>
+    <details class="card legacy"><summary>’22-’36 기획서 체계(8대 분야 99개 국방전략기술 · 핵심기술) 보기</summary><div id="legacy"></div></details>
+  </section>
+
+  <section id="view-changes" class="view" hidden>
+    <p class="lead">같은 과제가 기획서 연도에 따라 달라진 항목입니다. 과제번호는 매년 다시 매겨지므로 기본적으로 숨기고, 사업기간·사업구분·국방전략기술 분류·과제명 변경만 보여줍니다.</p>
+    <div class="filter-row">
+      <select id="c-item"><option value="">변경 항목 전체</option><option>사업기간</option><option>사업구분</option><option>국방전략기술</option><option>세부기술</option><option>과제명</option><option value="과제번호">과제번호(연도별 재부여)</option></select>
+      <select id="c-field"><option value="">분야 전체</option></select>
+      <label class="chk"><input type="checkbox" id="c-dropped"> 최신 과제 목록 미수록 과제만</label>
+    </div>
+    <div id="changes"></div>
+  </section>
+
+  <section id="view-about" class="view" hidden>
+    <article class="card prose" id="about"></article>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <button class="modal-close" id="m-close" aria-label="닫기">×</button>
+    <div id="m-body"></div>
+  </div>
+</div>
+
+<footer class="site-footer"><div class="wrap">
+  <p>자료 출처: 국방기술진흥연구소, 「국방기술기획서(일반본)」 ’22-’36 · ’23-’37 · ’24-’38 · ’25-’39 · ’26-’40 | 형식 참고: OMB, <a href="https://github.com/ombegov/2025-Federal-Agency-AI-Use-Case-Inventory" rel="noopener">2025 Federal Agency AI Use Case Inventory</a></p>
+</div></footer>
+<script src="assets/app.js"></script>
+</body>
+</html>
