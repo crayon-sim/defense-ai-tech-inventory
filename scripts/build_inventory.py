@@ -353,7 +353,8 @@ def main():
             st = '진행 중'
         rec['status'] = st
         rec['in_latest_master_list'] = (LATEST in eds and 'source' in eds[LATEST])
-        rec['status_note'] = None if rec['in_latest_master_list'] else '최신 과제 목록(’26-’40 기획서)에 미수록 — 종료·통합·명칭 변경 가능성'
+        # a project that ended before the reference year is naturally absent from the latest list: no note for those
+        rec['status_note'] = None if (rec['in_latest_master_list'] or st == '종료') else '최신 과제 목록(’26-’40 기획서)에 미수록 — 통합·명칭 변경·중단 가능성'
         # change log between consecutive editions
         changes = []
         for a, b in zip(years, years[1:]):
