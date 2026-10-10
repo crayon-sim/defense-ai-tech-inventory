@@ -29,6 +29,8 @@ jobs:
           python3 scripts/parse_2026.py > /dev/null
           python3 scripts/build_inventory.py
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
