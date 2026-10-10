@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>기획서 PDF 텍스트 변환기</title>
+<style>
+/* layout: one column tool; drop zone on top, file cards below, log at the bottom */
+:root {
+  --bg: #f6f7f4; --surface: #ffffff; --ink: #141615; --ink-2: #4f5551; --muted: #868c87; --line: #dfe3dd;
+  --accent: #1f6fd0; --accent-ink: #15518f; --accent-soft: #e4eefb; --good: #1d8a3b; --bad: #c4322f; --warn: #b7791f;
+  --font: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "SF Mono", "Cascadia Mono", "D2Coding", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121413; --surface: #1c1f1d; --ink: #eef0ec; --ink-2: #c2c7c1; --muted: #8b918c; --line: #2d312e;
+  --accent: #5b9df0; --accent-ink: #9cc4f7; --accent-soft: #1b2a3d; --good: #4fc26f; --bad: #ef6b68; --warn: #e0a74a; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121413; --surface: #1c1f1d; --ink: #eef0ec; --ink-2: #c2c7c1; --muted: #8b918c; --line: #2d312e;
+  --accent: #5b9df0; --accent-ink: #9cc4f7; --accent-soft: #1b2a3d; --good: #4fc26f; --bad: #ef6b68; --warn: #e0a74a; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); line-height: 1.5; font-size: 15px; }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 28px 56px; padding-inline: 16px; display: grid; gap: 18px; }
+header h1 { margin: 0 0 6px; font-size: 1.45rem; letter-spacing: -.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--ink-2); max-width: 65ch; }
+.drop { border: 2px dashed var(--line); border-radius: 14px; background: var(--surface); padding: 32px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop strong { display: block; font-size: 1.05rem; margin-bottom: 4px; }
+.drop span { color: var(--muted); font-size: .9rem; }
+.drop input { display: none; }
+.btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; color: var(--ink-2); font-size: .92rem; }
+.opts label { display: inline-flex; align-items: center; gap: 6px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+.card h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.state { font-size: .88rem; }
+.state.ok { color: var(--good); } .state.err { color: var(--bad); } .state.warn { color: var(--warn); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+pre.preview { margin: 0; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.45 var(--mono); white-space: pre; color: var(--ink-2); }
+.stored { display: grid; gap: 6px; }
+.stored div { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: .9rem; min-width: 0; }
+.stored code { font-family: var(--mono); font-size: .8rem; color: var(--muted); overflow-wrap: anywhere; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: .78rem; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: .9rem; }
+footer { color: var(--muted); font-size: .82rem; }
+footer code { font-family: var(--mono); }
+@media (prefers-reduced-motion: reduce) { .bar i, .drop { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>기획서 PDF 텍스트 변환기</h1>
+    <p>국방기술기획서 PDF를 브라우저 안에서 텍스트로 바꿉니다. 파일은 서버로 전송되지 않고 이 창에서만 처리되며, 결과는 pdftotext의 <code>-layout</code> 출력과 같은 형식(페이지 사이에 폼피드 문자)으로 만들어집니다.</p>
+  </header>
+
+  <label class="drop" id="drop" for="file">
+    <strong>PDF 파일을 여기에 끌어다 놓거나 클릭해서 선택</strong>
+    <span>여러 권을 한 번에 넣어도 됩니다. 권당 20~30MB, 1,000쪽 기준 1~3분이 걸립니다.</span>
+    <input type="file" id="file" accept="application/pdf,.pdf" multiple>
+  </label>
+
+  <div class="opts">
+    <label><input type="checkbox" id="opt-layout" checked> 열 간격을 공백으로 유지(-layout)</label>
+    <label><input type="checkbox" id="opt-store" checked> 변환 결과를 이 페이지의 저장소에 올리기</label>
+    <span id="mode" class="pill">준비 중</span>
+  </div>
+
+  <div id="files" style="display:grid;gap:12px"></div>
+
+  <section class="card" id="stored-card" hidden>
+    <h3>저장소에 올라간 변환 결과</h3>
+    <div class="stored" id="stored"></div>
+  </section>
+
+  <footer>
+    처리 방식: 각 쪽의 글자 조각을 세로 위치로 줄을 묶고 가로 위치 순으로 이어 붙입니다. 조각 사이 간격이 글자 폭보다 넓으면 그만큼 공백을 넣어 표의 열이 유지되도록 합니다. 스캔 이미지로만 된 PDF는 글자가 추출되지 않습니다.
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtMB = (n) => (n / 1048576).toFixed(1) + ' MB';
+  const lib = window.pdfjsLib;
+  if (lib) lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  // ---- capability detection (claude.ai artifact) -------------------------------------
+  const caps = { downloads: null, assets: null, db: null };
+  const inArtifact = !!(window.claude && typeof window.claude.use === 'function');
+  const modeEl = $('#mode');
+  if (inArtifact) {
+    modeEl.textContent = '저장소 연결 중…';
+    Promise.all([claude.use('downloads'), claude.use('assets'), claude.use('db')]).then(([d, a, db]) => {
+      caps.downloads = d; caps.assets = a; caps.db = db;
+      modeEl.textContent = (a ? '저장소 업로드 가능' : '저장소 업로드 불가(읽기 전용 보기)') + (d ? ' · 내 PC 저장 가능' : '');
+      if (!a) { $('#opt-store').checked = false; $('#opt-store').disabled = true; }
+      loadStored();
+    });
+  } else {
+    modeEl.textContent = '로컬 모드: 변환 후 .txt 파일로 내려받기';
+    $('#opt-store').checked = false; $('#opt-store').disabled = true;
+  }
+
+  // ---- stored conversions index (db) ---------------------------------------------------
+  async function loadStored() {
+    if (!caps.db) return;
+    try {
+      const snap = await caps.db.collection('conversions').orderBy('at', 'desc').limit(50).get();
+      const rows = [];
+      snap.forEach((d) => rows.push(d.data()));
+      renderStored(rows);
+    } catch (e) { /* empty or unreadable store: nothing to show */ }
+  }
+  function renderStored(rows) {
+    const card = $('#stored-card'), box = $('#stored');
+    if (!rows.length) { card.hidden = true; return; }
+    card.hidden = false;
+    box.innerHTML = rows.map((r) => `<div><span>${esc(r.filename)}</span><span class="meta">${r.pages}쪽 · ${fmtMB(r.sizeBytes)} · ${esc((r.at || '').slice(0, 16).replace('T', ' '))}</span><code>${esc(r.asset_id)}</code></div>`).join('');
+  }
+
+  // ---- input handling --------------------------------------------------------------------
+  const drop = $('#drop'), input = $('#file');
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
+  input.addEventListener('change', () => { handleFiles(input.files); input.value = ''; });
+
+  const queue = []; let busy = false;
+  function handleFiles(list) {
+    Array.from(list).filter((f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf').forEach((f) => { queue.push(f); addCard(f); });
+    if (!busy) next();
+  }
+  async function next() {
+    const f = queue.shift();
+    if (!f) { busy = false; return; }
+    busy = true;
+    try { await convert(f); } catch (e) { setState(f, 'err', '변환 실패: ' + (e && e.message ? e.message : e)); }
+    next();
+  }
+
+  const cards = new Map();
+  function addCard(f) {
+    const id = 'c' + Math.random().toString(36).slice(2, 9);
+    const el = document.createElement('article'); el.className = 'card'; el.id = id;
+    el.innerHTML = `<h3>${esc(f.name)}</h3><div class="meta"><span>${fmtMB(f.size)}</span><span class="pages">쪽수 확인 중</span></div><div class="bar"><i></i></div><div class="state">대기 중</div><div class="actions"></div>`;
+    $('#files').prepend(el); cards.set(f, el);
+  }
+  function setState(f, cls, text) { const s = cards.get(f).querySelector('.state'); s.className = 'state ' + (cls || ''); s.textContent = text; }
+  function setProgress(f, p) { cards.get(f).querySelector('.bar i').style.width = Math.round(p * 100) + '%'; }
+
+  // ---- text extraction ---------------------------------------------------------------------
+  async function convert(f) {
+    if (!lib) throw new Error('PDF 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침해 주세요.');
+    const layout = $('#opt-layout').checked;
+    setState(f, '', '파일 읽는 중');
+    const buf = await f.arrayBuffer();
+    const pdf = await lib.getDocument({ data: buf, disableFontFace: true }).promise;
+    const n = pdf.numPages;
+    cards.get(f).querySelector('.pages').textContent = n + '쪽';
+    const parts = [];
+    for (let i = 1; i <= n; i++) {
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent({ disableCombineTextItems: false });
+      parts.push(pageToText(tc.items, layout));
+      page.cleanup();
+      if (i % 5 === 0 || i === n) { setProgress(f, i / n); setState(f, '', `변환 중 ${i} / ${n}쪽`); await new Promise((r) => setTimeout(r, 0)); }
+    }
+    pdf.destroy();
+    const text = parts.join('\f\n');
+    const outName = f.name.replace(/\.pdf$/i, '') + '.txt';
+    const blob = new Blob([text], { type: 'text/plain' });
+    setState(f, 'ok', `완료: ${n}쪽, ${fmtMB(blob.size)} (${text.length.toLocaleString('ko-KR')}자)`);
+    const acts = cards.get(f).querySelector('.actions');
+    acts.innerHTML = '';
+    const pre = document.createElement('pre'); pre.className = 'preview'; pre.textContent = text.slice(0, 2500) + (text.length > 2500 ? '\n…' : '');
+    const det = document.createElement('details'); det.innerHTML = '<summary>앞부분 미리보기</summary>'; det.appendChild(pre);
+    cards.get(f).appendChild(det);
+
+    if (inArtifact) {
+      if (caps.downloads) {
+        const b = mkBtn('내 PC에 .txt 저장', 'primary'); acts.appendChild(b);
+        b.addEventListener('click', async () => { b.disabled = true; try { await caps.downloads.save({ filename: outName, data: blob }); b.textContent = '저장됨'; } catch (e) { b.disabled = false; if (e && e.code === 'declined') return; setState(f, 'warn', '저장 실패: ' + ((e && e.code) || e)); } });
+      }
+      if (caps.assets && $('#opt-store').checked) await storeResult(f, outName, blob, n);
+      else if (caps.assets) { const b = mkBtn('저장소에 올리기'); acts.appendChild(b); b.addEventListener('click', () => { b.disabled = true; storeResult(f, outName, blob, n); }); }
+    } else {
+      const a = document.createElement('a'); a.className = 'btn primary'; a.textContent = '.txt 내려받기'; a.download = outName; a.href = URL.createObjectURL(blob); acts.appendChild(a);
+    }
+  }
+  function mkBtn(label, cls) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || ''); b.textContent = label; return b; }
+
+  async function storeResult(f, outName, blob, pages) {
+    setState(f, '', '저장소에 올리는 중…');
+    try {
+      const res = await caps.assets.upload(blob, { type: 'text/plain' });
+      const rec = { filename: outName, source: f.name, asset_id: res.id, sizeBytes: res.sizeBytes, pages, at: new Date().toISOString() };
+      if (caps.db) await caps.db.collection('conversions').doc(res.id).set(rec);
+      setState(f, 'ok', `저장소 업로드 완료 — 자산 ID ${res.id}`);
+      loadStored();
+    } catch (e) {
+      const code = e && e.code;
+      setState(f, 'err', '저장소 업로드 실패: ' + (code === 'too_large' ? '파일이 20MB를 넘습니다. -layout 옵션을 끄고 다시 시도해 주세요.' : code === 'not_granted' ? '이 보기에는 쓰기 권한이 없습니다.' : (code || (e && e.message) || e)));
+    }
+  }
+
+  // Rebuild lines from positioned text items, pdftotext -layout style.
+  function pageToText(items, layout) {
+    const rows = [];
+    for (const it of items) {
+      if (!it.str) continue;
+      const x = it.transform[4], y = it.transform[5];
+      const size = Math.max(1, Math.hypot(it.transform[0], it.transform[1]) || it.height || 10);
+      const tol = size * 0.45;
+      let row = null;
+      for (let k = rows.length - 1; k >= 0 && k >= rows.length - 12; k--) { if (Math.abs(rows[k].y - y) <= tol) { row = rows[k]; break; } }
+      if (!row) { row = { y, items: [] }; rows.push(row); }
+      row.items.push({ x, w: it.width || 0, size, s: it.str });
+    }
+    rows.sort((a, b) => b.y - a.y);
+    const out = [];
+    for (const r of rows) {
+      r.items.sort((a, b) => a.x - b.x);
+      let line = '', cursor = null;
+      for (const it of r.items) {
+        if (cursor !== null) {
+          const gap = it.x - cursor;
+          const spaceW = Math.max(2, it.size * 0.5);
+          let ns = 0;
+          if (gap > spaceW * 0.35) ns = layout ? Math.min(40, Math.max(1, Math.round(gap / spaceW))) : 1;
+          if (ns && !line.endsWith(' ') && !it.s.startsWith(' ')) line += ' '.repeat(ns);
+        }
+        line += it.s; cursor = it.x + it.w;
+      }
+      line = line.replace(/\s+$/, '');
+      if (line) out.push(line);
+    }
+    return out.join('\n');
+  }
+})();
+</script>
+</body>
+</html>

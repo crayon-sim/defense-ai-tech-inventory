@@ -229,6 +229,8 @@
       <p class="src">원문 PDF(권당 20~32MB)는 Google Drive 연동으로 본문 앞부분만 텍스트 변환이 가능했습니다. 전체 PDF 텍스트를 data/source 에 넣고 <code>scripts/</code> 파서를 다시 실행하면 나머지 장(제3장 과제 목록, 부록 과제카드)까지 같은 형식으로 확장할 수 있습니다.</p>
       <h2>OMB AI Use Case Inventory 항목과의 대응</h2>
       <table><thead><tr><th>OMB 항목</th><th>본 인벤토리 필드</th><th>설명</th></tr></thead><tbody>${map.map((r) => `<tr><td>${esc(r[0])}</td><td><code>${esc(r[1])}</code></td><td>${esc(r[2])}</td></tr>`).join('')}</tbody></table>
+      <h2>원문 PDF 텍스트 변환</h2>
+      <p>전체 PDF를 반영하려면 <a href="tools/pdf2text.html">브라우저용 PDF 텍스트 변환기</a>로 각 권을 .txt로 바꾼 뒤 <code>data/source/</code>에 넣고 빌드를 다시 실행합니다. 변환은 사용자의 브라우저 안에서만 이루어지며 파일이 외부로 전송되지 않습니다.</p>
       <h2>데이터 파일</h2>
       <ul><li><code>data/inventory.json</code> — 과제별 전체 필드(연도별 이력 포함)</li><li><code>data/inventory.csv</code> — 1행 1과제 평면 표(UTF-8 BOM)</li><li><code>data/taxonomy.json</code> — 10대 분야 30개 국방전략기술 체계(’26-’40 인공지능 Lv.3 포함)와 ’22-’36 체계</li><li><code>data/intermediate/</code> — 기획서별 파싱 결과</li></ul>
       <h2>유의 사항</h2>
