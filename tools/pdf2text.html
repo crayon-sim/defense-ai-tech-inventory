@@ -75,6 +75,17 @@ footer code { font-family: var(--mono); }
 
   <div id="files" style="display:grid;gap:12px"></div>
 
+  <section class="card" id="split-card">
+    <h3 style="margin:0">PDF 분할 <span class="pill">글자가 깨지는 PDF용</span></h3>
+    <p style="margin:0;color:var(--ink-2);font-size:.92rem">글꼴 매핑이 손상되어 위 변환으로 글자가 깨지는 PDF는 Google Drive의 문서 변환으로 읽을 수 있습니다. Drive 변환은 파일 앞부분만 처리하므로, 여기서 PDF를 50쪽 안팎으로 나눈 뒤 각 조각을 Google Drive의 기획서 폴더에 올려 주세요.</p>
+    <div class="opts">
+      <label><input type="file" id="split-file" accept="application/pdf,.pdf"></label>
+      <label>조각당 쪽수 <input type="number" id="split-pages" value="50" min="10" max="200" style="width:70px;font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)"></label>
+      <button type="button" class="btn primary" id="split-run">분할하기</button>
+    </div>
+    <div id="split-out" class="stored"></div>
+  </section>
+
   <section class="card" id="stored-card" hidden>
     <h3>저장소에 올라간 변환 결과</h3>
     <div class="stored" id="stored"></div>
@@ -86,6 +97,7 @@ footer code { font-family: var(--mono); }
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
 (function () {
   'use strict';
@@ -213,6 +225,40 @@ footer code { font-family: var(--mono); }
       setState(f, 'err', '저장소 업로드 실패: ' + (code === 'too_large' ? '파일이 20MB를 넘습니다. -layout 옵션을 끄고 다시 시도해 주세요.' : code === 'not_granted' ? '이 보기에는 쓰기 권한이 없습니다.' : (code || (e && e.message) || e)));
     }
   }
+
+  // ---- PDF split (for PDFs whose text layer is broken) ---------------------------------
+  $('#split-run').addEventListener('click', async () => {
+    const f = $('#split-file').files[0]; const out = $('#split-out');
+    if (!f) { out.innerHTML = '<div class="state err">먼저 PDF 파일을 선택해 주세요.</div>'; return; }
+    if (!window.PDFLib) { out.innerHTML = '<div class="state err">PDF 분할 라이브러리를 불러오지 못했습니다. 새로고침해 주세요.</div>'; return; }
+    const per = Math.max(5, Math.min(300, parseInt($('#split-pages').value, 10) || 50));
+    out.innerHTML = '<div class="state">파일 읽는 중…</div>';
+    try {
+      const src = await PDFLib.PDFDocument.load(await f.arrayBuffer(), { ignoreEncryption: true });
+      const n = src.getPageCount(); const base = f.name.replace(/\.pdf$/i, ''); const parts = [];
+      for (let s = 0; s < n; s += per) {
+        const idx = []; for (let i = s; i < Math.min(n, s + per); i++) idx.push(i);
+        const doc = await PDFLib.PDFDocument.create();
+        const pages = await doc.copyPages(src, idx); pages.forEach((pg) => doc.addPage(pg));
+        const bytes = await doc.save();
+        parts.push({ name: `${base}_p${String(s + 1).padStart(3, '0')}-${String(Math.min(n, s + per)).padStart(3, '0')}.pdf`, blob: new Blob([bytes], { type: 'application/pdf' }), from: s + 1, to: Math.min(n, s + per) });
+        out.innerHTML = `<div class="state">분할 중 ${Math.min(n, s + per)} / ${n}쪽</div>`;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      out.innerHTML = `<div class="state ok">${n}쪽을 ${parts.length}개 조각으로 나눴습니다. 각 조각을 저장한 뒤 Google Drive 기획서 폴더에 올려 주세요.</div>`;
+      for (const part of parts) {
+        const row = document.createElement('div');
+        row.innerHTML = `<span>${esc(part.name)}</span><span class="meta">${part.from}–${part.to}쪽 · ${fmtMB(part.blob.size)}</span>`;
+        if (inArtifact) {
+          const b = mkBtn('저장', 'primary'); row.appendChild(b);
+          b.addEventListener('click', async () => { if (!caps.downloads) { b.textContent = '저장 불가'; return; } b.disabled = true; try { await caps.downloads.save({ filename: part.name, data: part.blob }); b.textContent = '저장됨'; } catch (e) { b.disabled = false; if (e && e.code !== 'declined') b.textContent = '다시 시도'; } });
+        } else {
+          const a = document.createElement('a'); a.className = 'btn primary'; a.textContent = '저장'; a.download = part.name; a.href = URL.createObjectURL(part.blob); row.appendChild(a);
+        }
+        out.appendChild(row);
+      }
+    } catch (e) { out.innerHTML = '<div class="state err">분할 실패: ' + esc(e && e.message ? e.message : e) + '</div>'; }
+  });
 
   // Rebuild lines from positioned text items, pdftotext -layout style.
   function pageToText(items, layout) {
