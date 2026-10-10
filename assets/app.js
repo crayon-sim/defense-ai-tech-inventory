@@ -91,6 +91,15 @@
     $('#f-reset').addEventListener('click', () => { Object.assign(state, { q: '', field: '', stech: '', type: '', status: '', edition: '', ws: '', latest: false, shown: 100 }); $('#q').value = ''; ['#f-field', '#f-stech', '#f-type', '#f-status', '#f-edition', '#f-ws'].forEach((s) => { const el = $(s); if (el) el.value = ''; }); $('#f-latest').checked = false; fillStech(); renderTable(); });
     $$('#tbl th').forEach((th) => th.addEventListener('click', () => { const k = th.dataset.k; if (state.sort === k) state.asc = !state.asc; else { state.sort = k; state.asc = true; } renderTable(); }));
     $('#more').addEventListener('click', () => { state.shown += 200; renderTable(); });
+    // inside a claude.ai artifact, plain download links are inert: route them through the downloads capability
+    if (window.claude && typeof window.claude.use === 'function') {
+      $$('.dl a[download]').forEach((a) => a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const dl = await window.claude.use('downloads');
+        if (!dl) { a.textContent = a.textContent.replace(/ \(저장 불가\)$/, '') + ' (저장 불가)'; return; }
+        try { const blob = await (await fetch(a.getAttribute('href'))).blob(); await dl.save({ filename: a.getAttribute('href').split('/').pop(), data: blob }); } catch (err) { if (!(err && err.code === 'declined')) console.warn(err); }
+      }));
+    }
     $('#m-close').addEventListener('click', closeModal);
     $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
