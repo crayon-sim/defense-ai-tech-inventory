@@ -14,7 +14,7 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <h1>국방기술과제 인벤토리</h1>
-        <p class="tagline">국방기술기획서(’22~’26년판) 수록 과제 현황 · 미 연방 AI Use Case Inventory 지침 준용</p>
+        <p class="tagline">국방기술기획서(’22-’36 ~ ’26-’40) 수록 과제 현황 · 미 연방 AI Use Case Inventory 지침 준용</p>
       </div>
     </div>
     <nav class="tabs" aria-label="주요 메뉴">
@@ -34,12 +34,12 @@
       <figure class="card"><figcaption>국방전략기술 분야별 과제 수 <small>(현재 값 기준, 미연계 과제 제외)</small></figcaption><div id="chart-field"></div></figure>
       <figure class="card"><figcaption>사업구분별 과제 수</figcaption><div id="chart-type"></div></figure>
       <figure class="card"><figcaption>기획서 연도별 수록 과제 수 <small>(추출 범위 내)</small></figcaption><div id="chart-edition"></div></figure>
-      <figure class="card"><figcaption>분야별 예산 합계 <small>(’25-’39 기획서 과제 목록, 억원)</small></figcaption><div id="chart-budget"></div></figure>
+      <figure class="card"><figcaption>분야별 예산 합계 <small id="cap-budget">(최신 기획서 과제 목록, 억원)</small></figcaption><div id="chart-budget"></div></figure>
     </div>
     <div class="grid-2">
       <figure class="card"><figcaption>인공지능 분야 과제 — 국방전략기술별</figcaption><div id="chart-ai"></div></figure>
-      <div class="card" id="ai-lv4"></div>
     </div>
+    <div class="card" id="ai-lv4"></div>
   </section>
 
   <section id="view-inventory" class="view" hidden>
@@ -50,7 +50,8 @@
       <select id="f-type" aria-label="사업구분"><option value="">사업구분 전체</option></select>
       <select id="f-status" aria-label="상태"><option value="">상태 전체</option></select>
       <select id="f-edition" aria-label="수록 기획서"><option value="">수록 기획서 전체</option></select>
-      <label class="chk"><input type="checkbox" id="f-latest"> ’25-’39 과제 목록 수록만</label>
+      <select id="f-ws" aria-label="무기체계 분야"><option value="">무기체계 분야 전체</option></select>
+      <label class="chk"><input type="checkbox" id="f-latest"> <span id="f-latest-label">최신 과제 목록 수록만</span></label>
       <button id="f-reset" type="button" class="btn-ghost">초기화</button>
     </div>
     <div class="table-meta">
@@ -77,7 +78,7 @@
   </section>
 
   <section id="view-taxonomy" class="view" hidden>
-    <p class="lead">10대 분야 30개 국방전략기술(Level 1) → 세부기술(Level 2) → 구성기술(Level 3, 인공지능 분야는 ’26-’40 기획서 기술트리) 순으로 정리했습니다. 각 세부기술에 연계된 과제를 함께 표시합니다.</p>
+    <p class="lead">10대 분야 30개 국방전략기술(Level 1) → 세부기술(Level 2) → 구성기술(Level 3) 순으로 ’26-’40 기획서 기술트리를 정리하고, ’25-’39 세부기술 정의와 ’23-’37 국방기술 목록을 덧붙였습니다. 각 세부기술에 연계된 과제를 함께 표시합니다.</p>
     <div id="tax"></div>
     <details class="card legacy"><summary>’22-’36 기획서 체계(8대 분야 99개 국방전략기술 · 핵심기술) 보기</summary><div id="legacy"></div></details>
   </section>

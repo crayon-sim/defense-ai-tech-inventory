@@ -2,12 +2,19 @@
 """
 Build the unified 국방기술과제 inventory from the per-edition intermediate JSON files.
 
-Inputs : data/intermediate/parse_*.json  (produced by scripts/parse_*.py)
+Inputs (data/intermediate/):
+  full_lists_<year>.json   제3장 국방기술과제 목록 (2023-2026, full text)
+  full_cards_<year>.json   부록 국방기술 과제카드 (2023-2026, full text)
+  full_2026_ch2.json       '26-'40 국방전략기술 기술트리 Lv.1-3 + Lv.4 집계 (full text)
+  full_2023_ch2.json       '23-'37 국방전략기술별 국방기술·과제 (full text)
+  parse_2025_ch2.json      '25-'39 국방전략기술별 세부기술·과제 (Drive text)
+  parse_2024.json          '24-'38 국방전략기술별 과제 (Drive text)
+  parse_2022.json          '22-'36 국방전략기술·핵심기술·반영과제 (Drive text)
+
 Outputs: data/inventory.json, data/taxonomy.json, data/inventory.csv, data/stats.json
 
-Merge rule (최신자료 우선): a project that appears in several editions keeps the values of the
-most recent edition that lists it. Older editions are kept as history so that changes between
-editions (과제번호/기간/단계/분류 변경) can be shown.
+Merge rule (최신자료 우선): a project that appears in several editions keeps the values of the most
+recent edition that lists it; older editions are kept as history so that changes can be shown.
 """
 import os, re, json, csv, difflib
 from collections import OrderedDict, Counter, defaultdict
@@ -17,48 +24,45 @@ ROOT = os.path.dirname(HERE)
 INT = os.path.join(ROOT, 'data', 'intermediate')
 OUT = os.path.join(ROOT, 'data')
 
-REFERENCE_YEAR = 2026          # status is evaluated against the latest edition year
+REFERENCE_YEAR = 2026
+LATEST = '2026'
 EDITIONS = OrderedDict([
     ('2022', {'title': "'22-'36 국방기술기획서(일반본)", 'published': '2022-04', 'pages_total': 394,
-              'coverage': '제2장 국방전략기술 기반 핵심기술 확보전략(8대 분야 99개 국방전략기술·핵심기술 목록 및 반영과제) 추출. 제3·4장(과제 목록·과제카드)은 원문 추출 범위 밖'}),
+              'coverage': '제2장 국방전략기술 기반 핵심기술 확보전략(8대 분야 99개 국방전략기술·핵심기술 목록 및 반영과제 590건). 제3·4장(과제 목록·과제카드)은 원본 PDF의 글꼴 매핑 손상으로 텍스트 추출 불가'}),
     ('2023', {'title': "'23-'37 국방기술기획서(일반본)", 'published': '2023-06', 'pages_total': 335,
-              'coverage': '제2장 국방전략기술(10대 분야 중 7개 분야 : 인공지능~사이버·네트워크 일부) 국방기술 목록과 진행·예정과제 추출. 센서·전자기전/추진/WMD 대응 및 제3장은 추출 범위 밖'}),
+              'coverage': '제2장 10대 분야 30개 국방전략기술별 국방기술·진행/예정과제 전체, 제3장 과제 목록 전체(기초연구~민·군기술협력 853건), 부록 과제카드(개요·연구항목)'}),
     ('2024', {'title': "'24-'38 국방기술기획서(일반본)", 'published': '2024-07', 'pages_total': 247,
-              'coverage': '제2장 10대 분야 30개 국방전략기술별 국방기술과제 목록 전체 + 제3장 기초연구 과제 목록(81건) 추출. 응용연구 이하 제3장 목록·부록은 추출 범위 밖'}),
+              'coverage': '제2장 10대 분야 30개 국방전략기술별 과제 목록 전체, 제3장 과제 목록 전체(778건 중 772건), 부록 과제카드'}),
     ('2025', {'title': "'25-'39 국방기술기획서(일반본)", 'published': '2025-05', 'pages_total': 257,
-              'coverage': '제2장 10대 분야 30개 국방전략기술·92개 세부기술과 연계 과제, 제3장 국방기술과제 목록 전체(644건 : 과제번호·기간·주관형태·예산) 추출. 부록 과제카드는 기초연구 일부만 추출 범위'}),
-    ('2026', {'title': "'26-'40 국방기술기획서(일반본)", 'published': '2026-07', 'pages_total': 995,
-              'coverage': '제1장 총론 및 제2장 인공지능 분야(국방전략기술 Lv.1~Lv.3 기술트리, 기술개발소요 로드맵) 전체와 유·무인 복합 분야 일부 추출. 제3장 국방기술과제 추진계획(302쪽~)은 추출 범위 밖'}),
+              'coverage': '제2장 30개 국방전략기술·92개 세부기술·연계 과제, 제3장 과제 목록 전체(644건 : 과제번호·기간·주관형태·예산), 부록 과제카드 전체'}),
+    ('2026', {'title': "'26-'40 국방기술기획서(일반본)", 'published': '2026-07', 'pages_total': 455,
+              'coverage': '제2장 10대 분야 30개 국방전략기술 기술트리(Lv.1~Lv.3)와 기술개발소요 집계, 제3장 과제 목록 전체(461건 : 과제번호·기간·주관형태·예산·국방전략기술 분야), 부록 과제카드 전체'}),
 ])
 
 FIELDS = ['인공지능', '유·무인 복합', '양자', '우주', '에너지', '첨단소재', '사이버·네트워크', '센서·전자기전', '추진', 'WMD 대응']
-FIELD_ALIASES = {'유무인 복합': '유·무인 복합', '유·무인복합': '유·무인 복합', '사이버네트워크': '사이버·네트워크', '센서전자기전': '센서·전자기전',
+FIELD_ALIASES = {'유무인 복합': '유·무인 복합', '유·무인복합': '유·무인 복합', '유무인복합': '유·무인 복합', '사이버네트워크': '사이버·네트워크', '센서전자기전': '센서·전자기전',
                  'WMD대응': 'WMD 대응', '사이버·네트워크': '사이버·네트워크'}
 STECH_ALIASES = {'유무인 협업': '유·무인 협업', '유무인 협업(지상/해양/공중)': '유·무인 협업', '유·무인 협업(지상/해양/공중)': '유·무인 협업',
                  '자율 임무수행(지상/해양/공중)': '자율 임무수행'}
 
-# 사업구분 normalisation: every edition uses slightly different labels
 STAGE_MAP = {
-    '기초': '기초연구', '기초연구': '기초연구', '개별기초': '기초연구',
+    '기초': '기초연구', '기초연구': '기초연구', '개별기초': '기초연구', '특화실': '기초연구', '특화연구실': '기초연구', '특화센터': '기초연구', '특화연구센터': '기초연구',
     '응용': '응용연구', '응용연구': '응용연구',
     '시험': '시험개발', '시험개발': '시험개발',
     '응용/시험': '응용/시험',
-    '패키지형': '무기체계 패키지형', '국방협업': '무기체계 패키지형', '국방선행': '무기체계 패키지형', '무기체계 패키지형': '무기체계 패키지형',
+    '패키지형': '무기체계 패키지형', '국방협업': '무기체계 패키지형', '국방선행': '무기체계 패키지형', '무기체계 패키지형': '무기체계 패키지형', '국방 협업': '무기체계 패키지형', '국방 선행': '무기체계 패키지형',
     '선도형': '선도형 핵심기술', '선도형 핵심기술': '선도형 핵심기술',
-    '핵심SW': '핵심SW',
+    '핵심SW': '핵심SW', '핵심 SW': '핵심SW',
     '선행핵심': '선행핵심기술', '선행핵심기술': '선행핵심기술',
     '국제공동': '국제공동기술개발', '국제공동기술개발': '국제공동기술개발',
-    '미래도전': '미래도전국방기술', '미래도전국방기술': '미래도전국방기술', '개별과제': '미래도전국방기술', 'PM기획': '미래도전국방기술',
-    '특화실': '기초연구', '특화연구실': '기초연구',
-    '특화센터': '기초연구', '특화연구센터': '기초연구',
-    '민군': '민·군기술협력', '민군협력': '민·군기술협력',
+    '미래도전': '미래도전국방기술', '미래도전국방기술': '미래도전국방기술', '개별과제': '미래도전국방기술', 'PM기획': '미래도전국방기술', '가교적 연구': '미래도전국방기술', '기술경진대회': '미래도전국방기술',
+    '민군': '민·군기술협력', '민군협력': '민·군기술협력', '민·군기술협력': '민·군기술협력',
 }
 SUBTYPE_MAP = {'특화실': '특화연구실', '특화연구실': '특화연구실', '특화센터': '특화연구센터', '특화연구센터': '특화연구센터',
-               '국방협업': '국방협업', '국방선행': '국방선행', '개별기초': '개별기초', 'PM기획': 'PM기획', '개별과제': '개별과제'}
+               '국방협업': '국방협업', '국방 협업': '국방협업', '국방선행': '국방선행', '국방 선행': '국방선행', '개별기초': '개별기초', 'PM기획': 'PM기획', '개별과제': '개별과제',
+               '가교적 연구': '가교적 연구', '기술경진대회': '기술경진대회'}
 
-
-# Projects whose name changed (or was garbled by PDF column extraction) between editions.
-# key: name as it appears in an older edition, value: project number in the '25-'39 과제 목록
+# Projects whose name changed (or was garbled by PDF column extraction) between editions: old name -> '25-'39 과제번호
 RENAMED_PROJECTS = {
     '사이버 기술 시범 전장관리체계 핵심기술을 활용한 미래 지능형 함정 통합 사이버방호체계': 625,
     '유·무인 감지 시스템 무기체계용 개발 2차전지의 안전성 확보를 위한 초고감도 배터리 열폭주 조기': 641,
@@ -73,23 +77,26 @@ RENAMED_PROJECTS = {
     '초저궤도 광학위성 발사모델 개발': 542,
 }
 GARBLED = {k for k in RENAMED_PROJECTS if k.startswith(('사이버 기술 시범', '유·무인 감지', '무기체계 핵심기술 전자부품', '미래 위성 전장용', '초정밀 이용한', '비정형 대응', '517 '))}
+STAGE_PERIOD_RE = re.compile(r"(기초연구|응용연구|시험개발|응용/시험|패키지형|국방협업|국방선행|선도형|핵심SW|선행핵심|국제공동|미래도전|특화실|특화센터)\s+'\d\d-'\d\d\s*")
 
 
 def load(name):
-    with open(os.path.join(INT, name), encoding='utf-8') as f:
+    p = os.path.join(INT, name)
+    if not os.path.exists(p):
+        return None
+    with open(p, encoding='utf-8') as f:
         return json.load(f)
 
 
 def norm_name(s):
     s = s or ''
     s = s.replace('\\', '')
-    s = re.sub(r'[\s·ㆍ‧∙・‧･·ㆍ\-–—/,.()\[\]·:;’\'"`~!?]', '', s)
-    s = s.replace('ㆍ', '')
+    s = re.sub(r'\(구\.[^)]*\)', '', s)
+    s = re.sub(r'[\s·ㆍ‧∙・‧･·ㆍ\-–—/,.()\[\]:;’\'"`~!?]', '', s)
     return s.lower()
 
 
 def period_years(p):
-    """'23-'27 -> (2023, 2027)"""
     if not p:
         return None, None
     m = re.match(r"'(\d\d)-'(\d\d)", p)
@@ -98,7 +105,19 @@ def period_years(p):
     return 2000 + int(m.group(1)), 2000 + int(m.group(2))
 
 
-STAGE_PERIOD_RE = re.compile(r"(기초연구|응용연구|시험개발|응용/시험|패키지형|국방협업|국방선행|선도형|핵심SW|선행핵심|국제공동|미래도전|특화실|특화센터)\s+'\d\d-'\d\d\s*")
+def field_norm(f):
+    if not f:
+        return None
+    f = re.sub('[ㆍ‧･∙⸱]', '·', f.strip())
+    f = FIELD_ALIASES.get(f, f)
+    return f if f in FIELDS else None
+
+
+def stech_norm(s):
+    if not s:
+        return None
+    s = re.sub('[ㆍ‧･∙⸱]', '·', s.strip())
+    return STECH_ALIASES.get(s, s)
 
 
 def clean_sub(s):
@@ -109,34 +128,19 @@ def clean_sub(s):
     return s or None
 
 
-def field_norm(f):
-    if not f:
-        return None
-    f = f.strip()
-    f = re.sub('[ㆍ‧･∙]', '·', f)
-    return FIELD_ALIASES.get(f, f)
-
-
-def stech_norm(s):
-    if not s:
-        return None
-    s = re.sub('[ㆍ‧･∙]', '·', s.strip())
-    return STECH_ALIASES.get(s, s)
-
-
 class Inventory:
     def __init__(self):
-        self.records = []            # list of dict
-        self.by_norm = {}            # norm name -> record
+        self.records = []
+        self.by_norm = {}
         self.norm_keys = []
+        self.by_no_2025 = {}
 
-    def find(self, name, stage=None):
+    def find(self, name):
         n = norm_name(name)
         if n in self.by_norm:
             return self.by_norm[n]
-        if name in RENAMED_PROJECTS and getattr(self, 'by_no_2025', None):
+        if name in RENAMED_PROJECTS and self.by_no_2025:
             return self.by_no_2025.get(RENAMED_PROJECTS[name])
-        # fuzzy match (names were slightly edited between editions)
         best, score = None, 0
         for k in self.norm_keys:
             if abs(len(k) - len(n)) > max(6, len(n) * 0.25):
@@ -151,20 +155,20 @@ class Inventory:
     def add(self, rec):
         self.records.append(rec)
         for v in rec['name_variants']:
-            n = norm_name(v)
-            if n not in self.by_norm:
-                self.by_norm[n] = rec
-                self.norm_keys.append(n)
+            self._index(rec, v)
+
+    def _index(self, rec, name):
+        n = norm_name(name)
+        if n and n not in self.by_norm:
+            self.by_norm[n] = rec
+            self.norm_keys.append(n)
 
     def register_variant(self, rec, name):
-        if name in GARBLED:
+        if name in GARBLED or not name:
             return
         if name not in rec['name_variants']:
             rec['name_variants'].append(name)
-        n = norm_name(name)
-        if n not in self.by_norm:
-            self.by_norm[n] = rec
-            self.norm_keys.append(n)
+        self._index(rec, name)
 
 
 def new_record(name):
@@ -173,8 +177,9 @@ def new_record(name):
         'program_type': None, 'program_subtype': None, 'lead_type': None,
         'start_year': None, 'end_year': None, 'duration_months': None, 'budget_100m_krw': None,
         'field': None, 'strategic_tech': None, 'sub_tech': None,
+        'weapon_system_field': None, 'tech_field': None,
         'legacy_2022_field': None, 'legacy_2022_tech': None,
-        'linked_core_techs': [],     # 2022 핵심기술 / 2023 국방기술 names this project is mapped to
+        'linked_core_techs': [],
         'description': None, 'research_items': None,
         'editions': OrderedDict(),
         'first_edition': None, 'latest_edition': None,
@@ -186,7 +191,7 @@ def set_edition(rec, year, data):
     for k, v in data.items():
         if v is None:
             continue
-        if k in ('core_techs',):
+        if k == 'core_techs':
             ed.setdefault(k, [])
             for x in v:
                 if x and x not in ed[k] and not re.match(r'^\d{3}\s', x) and len(x) <= 80:
@@ -197,74 +202,77 @@ def set_edition(rec, year, data):
     rec['latest_edition'] = max([rec['latest_edition'], year]) if rec['latest_edition'] else year
 
 
+def apply_card(rec, year, card):
+    if not card:
+        return
+    ed = rec['editions'].setdefault(year, {})
+    ed['card'] = {'desc': card.get('desc'), 'research_items': card.get('research_items') or None, 'weapon_system_field': card.get('ws_field'),
+                  'tech_field': card.get('tech_field'), 'phase_periods': card.get('phase_periods')}
+
+
 def main():
     inv = Inventory()
-    p25_3 = load('parse_2025_ch3.json')
+    lists = {y: load('full_lists_%s.json' % y) or [] for y in ('2023', '2024', '2025', '2026')}
+    cards = {y: load('full_cards_%s.json' % y) or [] for y in ('2023', '2024', '2025', '2026')}
+    cards_by_id = {y: {c['id']: c for c in cards[y]} for y in cards}
+    cards_by_norm = {y: {norm_name(c['name']): c for c in cards[y]} for y in cards}
     p25_2 = load('parse_2025_ch2.json')
     p24 = load('parse_2024.json')
-    p23 = load('parse_2023.json')
+    p23 = load('full_2023_ch2.json')
     p22 = load('parse_2022.json')
-    p26 = load('parse_2026.json')
+    p26 = load('full_2026_ch2.json')
 
-    # ------------------------------------------------------------------ 2025 chapter 3 (master list)
-    for p in p25_3:
-        rec = new_record(p['name'])
-        rec['program_type'] = p['type']
-        rec['program_subtype'] = p['subtype'] if p['subtype'] != p['type'] else None
-        rec['lead_type'] = p['lead']
-        rec['start_year'], rec['end_year'] = p['start'], p['end']
-        rec['duration_months'] = p['months']
-        rec['budget_100m_krw'] = p['budget']
-        if p.get('field') and field_norm(p['field']) in FIELDS:
-            rec['field'] = field_norm(p['field'])
-        set_edition(rec, '2025', {'project_no': p['id'], 'stage': p['subtype'] or p['type'], 'period': "'%02d-'%02d" % (p['start'] % 100, p['end'] % 100),
-                                  'lead_type': p['lead'], 'budget_100m_krw': p['budget'], 'source': '제3장 국방기술과제 목록'})
-        inv.add(rec)
-    by_no_2025 = {r['editions']['2025']['project_no']: r for r in inv.records}
-    inv.by_no_2025 = by_no_2025
+    # 2023 list rows: numbering restarts per section -> recover the global 과제번호 through the cards (same order, same names)
+    for r in lists['2023']:
+        c = cards_by_norm['2023'].get(norm_name(r['name']))
+        r['id'] = c['id'] if c else None
 
-    # ------------------------------------------------------------------ 2025 chapter 2 (strategic tech mapping)
-    unmatched = []
-    for p in p25_2['projs']:
-        rec = by_no_2025.get(p['id'])
-        if rec and norm_name(rec['name'])[:8] != norm_name(p['name'])[:8] and difflib.SequenceMatcher(None, norm_name(rec['name']), norm_name(p['name'])).ratio() < 0.6:
-            rec = None
-        if rec is None:
-            rec = inv.find(p['name'])
-        if rec is None:
-            rec = new_record(p['name'])
-            rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage'])
-            rec['program_subtype'] = SUBTYPE_MAP.get(p['stage'])
-            rec['start_year'], rec['end_year'] = period_years(p['period'])
-            inv.add(rec)
-            unmatched.append(p['name'])
-        inv.register_variant(rec, p['name'])
-        rec['field'] = field_norm(p['field'])
-        rec['strategic_tech'] = stech_norm(p['stech'])
-        rec['sub_tech'] = clean_sub(p['sub'])
-        set_edition(rec, '2025', {'project_no': p['id'], 'field': rec['field'], 'strategic_tech': rec['strategic_tech'], 'sub_tech': rec['sub_tech'],
-                                  'stage': rec['editions'].get('2025', {}).get('stage') or p['stage'], 'period': p['period'], 'source2': '제2장 국방전략기술별 국방기술과제 목록'})
-    print('2025 ch2 unmatched (new records):', len(unmatched))
+    # ------------------------------------------------------------------ 제3장 과제 목록, latest edition first
+    def absorb_list(year):
+        new = 0
+        for p in lists[year]:
+            rec = inv.find(p['name']) if year != LATEST else None
+            if rec is None:
+                rec = new_record(p['name']); inv.add(rec); new += 1
+            inv.register_variant(rec, p['name'])
+            ptype = STAGE_MAP.get(p['subtype'] or p['type'], p['type'])
+            psub = SUBTYPE_MAP.get(p['subtype']) if p.get('subtype') else None
+            ed = {'project_no': p['id'], 'stage': p['subtype'] or p['type'], 'period': "'%02d-'%02d" % (p['start'] % 100, p['end'] % 100),
+                  'start_year': p['start'], 'end_year': p['end'], 'duration_months': p.get('months'), 'lead_type': p['lead'], 'budget_100m_krw': p['budget'],
+                  'tbd_years': True if p.get('tbd_years') else None, 'source': '제3장 국방기술과제 목록'}
+            if p.get('field'):
+                ed['field'] = field_norm(p['field'])
+            set_edition(rec, year, ed)
+            card = cards_by_id[year].get(p['id']) if p['id'] else None
+            apply_card(rec, year, card)
+            # latest-edition values win: fill only if not yet set by a newer edition
+            if rec['latest_edition'] == year:
+                rec['program_type'] = ptype; rec['program_subtype'] = psub; rec['lead_type'] = p['lead']
+                rec['start_year'], rec['end_year'] = p['start'], p['end']
+                rec['duration_months'] = p.get('months'); rec['budget_100m_krw'] = p['budget']
+                if ed.get('field'):
+                    rec['field'] = ed['field']
+        print(year, 'list absorbed, new records:', new)
 
-    # ------------------------------------------------------------------ 2024
-    def absorb(year, items, source, with_sub=True):
+    for y in ('2026', '2025', '2024', '2023'):
+        absorb_list(y)
+        if y == '2025':
+            inv.by_no_2025 = {r['editions']['2025']['project_no']: r for r in inv.records if '2025' in r['editions'] and r['editions']['2025'].get('project_no')}
+
+    # ------------------------------------------------------------------ 제2장 국방전략기술 연계 (분야/국방전략기술/세부기술)
+    def absorb_ch2(year, items, source, with_sub=True):
         new = 0
         for p in items:
             rec = inv.find(p['name'])
             if rec is None:
-                rec = new_record(p['name'])
-                rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage'])
-                rec['program_subtype'] = SUBTYPE_MAP.get(p['stage'])
+                rec = new_record(p['name']); inv.add(rec); new += 1
+                rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage']); rec['program_subtype'] = SUBTYPE_MAP.get(p['stage'])
                 rec['start_year'], rec['end_year'] = period_years(p['period'])
-                if p.get('field') in FIELDS or field_norm(p.get('field')) in FIELDS:
-                    rec['field'] = field_norm(p['field'])
-                    rec['strategic_tech'] = stech_norm(p.get('stech'))
-                    rec['sub_tech'] = clean_sub(p.get('sub'))
-                inv.add(rec); new += 1
             inv.register_variant(rec, p['name'])
-            ed = {'project_no': p['id'], 'stage': p['stage'], 'period': p['period'], 'source': source}
-            if p.get('field'):
-                ed['field'] = field_norm(p['field'])
+            ed = {'project_no': p.get('id'), 'stage': p['stage'], 'period': p['period'], 'source2': source}
+            f = field_norm(p.get('field'))
+            if f:
+                ed['field'] = f
             if p.get('stech'):
                 ed['strategic_tech'] = stech_norm(p['stech'])
             if with_sub and p.get('sub'):
@@ -274,42 +282,21 @@ def main():
             if p.get('status'):
                 ed['status_tag'] = p['status']
             set_edition(rec, year, ed)
-            # fill taxonomy fields from older editions when the newest edition does not provide them
-            if rec['field'] is None and ed.get('field') in FIELDS:
-                rec['field'] = ed['field']; rec['strategic_tech'] = ed.get('strategic_tech'); rec['sub_tech'] = ed.get('sub_tech')
             if rec['program_type'] is None:
                 rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage'])
+            if rec['start_year'] is None:
+                rec['start_year'], rec['end_year'] = period_years(p['period'])
         print(year, source, 'new records:', new)
 
-    absorb('2024', p24['projs'], '제2장 국방전략기술별 국방기술과제 목록')
-    # 2024 기초연구 list (with budgets)
-    for b in p24['basic']:
-        rec = inv.find(b['name'])
-        if rec is None:
-            rec = new_record(b['name'])
-            rec['program_type'] = '기초연구'
-            rec['program_subtype'] = b['subtype'] if b['subtype'] != '개별기초' else '개별기초'
-            rec['lead_type'] = b['lead']; rec['start_year'], rec['end_year'] = b['start'], b['end']; rec['budget_100m_krw'] = b['budget']
-            inv.add(rec)
-        inv.register_variant(rec, b['name'])
-        set_edition(rec, '2024', {'project_no_ch3': b['id'], 'stage': b['subtype'] or '개별기초', 'period': "'%02d-'%02d" % (b['start'] % 100, b['end'] % 100),
-                                  'lead_type': b['lead'], 'budget_100m_krw': b['budget'], 'source3': '제3장 기초연구 과제 목록'})
-        if '2025' not in rec['editions']:
-            rec['lead_type'] = rec['lead_type'] or b['lead']
-            rec['budget_100m_krw'] = rec['budget_100m_krw'] or b['budget']
-
-    # ------------------------------------------------------------------ 2023
-    absorb('2023', p23['projs'], '제2장 국방전략기술별 국방기술 목록', with_sub=False)
-
-    # ------------------------------------------------------------------ 2022 (legacy 8-field taxonomy)
+    absorb_ch2('2025', p25_2['projs'], '제2장 국방전략기술별 국방기술과제 목록')
+    absorb_ch2('2024', p24['projs'], '제2장 국방전략기술별 국방기술과제 목록')
+    absorb_ch2('2023', p23['projs'], '제2장 국방전략기술별 국방기술 목록', with_sub=False)
     for p in p22['projs']:
         rec = inv.find(p['name'])
         if rec is None:
-            rec = new_record(p['name'])
-            rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage'])
-            rec['program_subtype'] = SUBTYPE_MAP.get(p['stage'])
+            rec = new_record(p['name']); inv.add(rec)
+            rec['program_type'] = STAGE_MAP.get(p['stage'], p['stage']); rec['program_subtype'] = SUBTYPE_MAP.get(p['stage'])
             rec['start_year'], rec['end_year'] = period_years(p['period'])
-            inv.add(rec)
         inv.register_variant(rec, p['name'])
         set_edition(rec, '2022', {'project_no': p['id'], 'stage': p['stage'], 'period': p['period'], 'legacy_field': p['field'], 'legacy_tech': p['stech'],
                                   'core_techs': [p['ktech']] if p.get('ktech') else None, 'source': '제2장 국방전략기술별 핵심기술 목록(반영과제)'})
@@ -317,49 +304,61 @@ def main():
         rec['legacy_2022_tech'] = rec['legacy_2022_tech'] or p['stech']
 
     # ------------------------------------------------------------------ derived fields
-    today_year = REFERENCE_YEAR
     for rec in inv.records:
         eds = rec['editions']
-        latest = rec['latest_edition']
+        years = sorted(eds.keys())
+        latest = years[-1]
         led = eds[latest]
-        # latest-edition values win
-        if led.get('period'):
-            s, e = period_years(led['period'])
-            if s:
-                rec['start_year'], rec['end_year'] = s, e
+        if led.get('period') and rec['start_year'] is None:
+            rec['start_year'], rec['end_year'] = period_years(led['period'])
         if rec['program_type'] is None and led.get('stage'):
             rec['program_type'] = STAGE_MAP.get(led['stage'], led['stage'])
         if rec['program_subtype'] is None and led.get('stage') in SUBTYPE_MAP:
             rec['program_subtype'] = SUBTYPE_MAP[led['stage']]
-        # linked core techs across editions
+        # 국방전략기술 classification: newest edition that gives it; the 2026 list gives the 분야 only
+        for y in reversed(years):
+            e = eds[y]
+            if e.get('strategic_tech'):
+                rec['strategic_tech'] = e['strategic_tech']; rec['sub_tech'] = e.get('sub_tech'); rec['field'] = rec['field'] or e.get('field')
+                if e.get('field') and rec['field'] and e['field'] != rec['field']:
+                    rec['strategic_tech_note'] = '%s년판 분류(%s › %s)와 최신 분야(%s)가 다름' % (y, e['field'], e['strategic_tech'], rec['field'])
+                break
+        if rec['field'] is None:
+            for y in reversed(years):
+                if eds[y].get('field'):
+                    rec['field'] = eds[y]['field']; break
+        # card data (개요·연구항목·무기체계 분야·기술 분야): newest card wins
+        for y in reversed(years):
+            c = eds[y].get('card')
+            if c:
+                rec['description'] = c.get('desc') or None
+                rec['research_items'] = c.get('research_items') or None
+                rec['weapon_system_field'] = c.get('weapon_system_field')
+                rec['tech_field'] = c.get('tech_field')
+                if c.get('phase_periods'):
+                    rec['phase_periods'] = c['phase_periods']
+                break
         lct = []
         for y, ed in eds.items():
             for k in ed.get('core_techs', []):
                 if k not in lct:
                     lct.append(k)
         rec['linked_core_techs'] = lct
-        # status
         s, e = rec['start_year'], rec['end_year']
-        if s and s > today_year:
+        if s and s > REFERENCE_YEAR:
             st = '착수 예정'
-        elif e and e < today_year:
+        elif e and e < REFERENCE_YEAR:
             st = '종료'
         else:
             st = '진행 중'
-        if latest != '2025' and latest != '2026':
-            st_note = '최신 과제 목록(’25-’39 기획서)에 미수록 — 종료·통합·명칭 변경 가능성'
-        else:
-            st_note = None
         rec['status'] = st
-        rec['status_note'] = st_note
-        rec['in_latest_master_list'] = ('2025' in eds and 'source' in eds['2025'])
-        # change log
+        rec['in_latest_master_list'] = (LATEST in eds and 'source' in eds[LATEST])
+        rec['status_note'] = None if rec['in_latest_master_list'] else '최신 과제 목록(’26-’40 기획서)에 미수록 — 종료·통합·명칭 변경 가능성'
+        # change log between consecutive editions
         changes = []
-        years = list(eds.keys())
-        years.sort()
         for a, b in zip(years, years[1:]):
             ea, eb = eds[a], eds[b]
-            for key, label in (('period', '사업기간'), ('stage', '사업구분'), ('project_no', '과제번호'), ('strategic_tech', '국방전략기술'), ('sub_tech', '세부기술')):
+            for key, label in (('period', '사업기간'), ('stage', '사업구분'), ('project_no', '과제번호'), ('strategic_tech', '국방전략기술'), ('sub_tech', '세부기술'), ('field', '국방전략기술 분야'), ('budget_100m_krw', '예산(억원)'), ('lead_type', '주관형태')):
                 va, vb = ea.get(key), eb.get(key)
                 if va is None or vb is None:
                     continue
@@ -370,6 +369,8 @@ def main():
                         continue
                 if key == 'sub_tech' and norm_name(va) == norm_name(vb):
                     continue
+                if key == 'budget_100m_krw' and abs(float(va) - float(vb)) < 0.005:
+                    continue
                 if str(va) != str(vb):
                     changes.append({'from_edition': a, 'to_edition': b, 'item': label, 'before': va, 'after': vb})
         if len(rec['name_variants']) > 1 and len({norm_name(v) for v in rec['name_variants']}) > 1:
@@ -379,81 +380,86 @@ def main():
 
     # ------------------------------------------------------------------ ids & ordering
     def sort_key(r):
-        no = r['editions'].get('2025', {}).get('project_no')
-        return (0, no) if no else (1, r['latest_edition'], r['name'])
+        no = r['editions'].get(LATEST, {}).get('project_no')
+        if no:
+            return (0, no, '')
+        no25 = r['editions'].get('2025', {}).get('project_no')
+        if no25:
+            return (1, no25, '')
+        return (2, 0, r['latest_edition'] + r['name'])
     inv.records.sort(key=sort_key)
     for i, rec in enumerate(inv.records, 1):
         rec['inventory_id'] = 'KDTI-%04d' % i
-    # order keys nicely
+    keys = ['inventory_id', 'name', 'name_variants', 'program_type', 'program_subtype', 'lead_type', 'start_year', 'end_year', 'duration_months',
+            'budget_100m_krw', 'field', 'strategic_tech', 'sub_tech', 'strategic_tech_note', 'weapon_system_field', 'tech_field', 'legacy_2022_field', 'legacy_2022_tech',
+            'linked_core_techs', 'status', 'status_note', 'in_latest_master_list', 'first_edition', 'latest_edition', 'editions_listed', 'editions', 'changes',
+            'description', 'research_items', 'phase_periods']
     ordered = []
     for rec in inv.records:
         o = OrderedDict()
-        for k in ['inventory_id', 'name', 'name_variants', 'program_type', 'program_subtype', 'lead_type', 'start_year', 'end_year', 'duration_months',
-                  'budget_100m_krw', 'field', 'strategic_tech', 'sub_tech', 'legacy_2022_field', 'legacy_2022_tech', 'linked_core_techs', 'status', 'status_note',
-                  'in_latest_master_list', 'first_edition', 'latest_edition', 'editions_listed', 'editions', 'changes', 'description', 'research_items']:
+        for k in keys:
             o[k] = rec.get(k)
         ordered.append(o)
 
     # ------------------------------------------------------------------ taxonomy
-    tax = {'fields': [], 'legacy_2022': {'fields': []}, 'ai_lv4_summary_2026': p26.get('lv4_summary')}
-    # strategic techs: description precedence 2026 > 2025 > 2024 > 2023
-    desc26 = {(n['name']): n for n in p26['nodes'] if n['level'] == 1}
-    lv2_26 = defaultdict(list)
-    for n in p26['nodes']:
+    tax = {'fields': [], 'legacy_2022': {'fields': []}, 'lv4_summary_2026': p26.get('lv4_summary') if p26 else None}
+    nodes = p26['nodes'] if p26 else []
+    lv1_26 = {(n['field'], stech_norm(n['name'])): n for n in nodes if n['level'] == 1}
+    lv2_26 = defaultdict(list); lv3_26 = defaultdict(list)
+    for n in nodes:
         if n['level'] == 2:
-            lv2_26[n['lv1']].append(n)
-    lv3_26 = defaultdict(list)
-    for n in p26['nodes']:
-        if n['level'] == 3:
-            lv3_26[n['lv2']].append(n)
+            lv2_26[(n['field'], stech_norm(n['lv1']))].append(n)
+        elif n['level'] == 3:
+            lv3_26[(n['field'], n['lv2'])].append(n)
     t25 = {(t['field'], stech_norm(t['name'])): t for t in p25_2['techs']}
     t24 = {(t['field'], stech_norm(t['name'])): t for t in p24['techs']}
     t23 = {(t['field'], stech_norm(t['name'])): t for t in p23['techs']}
     subdefs = defaultdict(list)
     for sd in p25_2['subdefs']:
         subdefs[(sd['field'], stech_norm(sd['stech']))].append(sd)
-    proj_by_sub = defaultdict(list)
+    proj_by_sub = defaultdict(list); proj_by_tech = defaultdict(list); proj_by_field = defaultdict(list)
     for rec in ordered:
+        if rec['field']:
+            proj_by_field[rec['field']].append(rec['inventory_id'])
         if rec['field'] and rec['strategic_tech']:
+            proj_by_tech[(rec['field'], rec['strategic_tech'])].append(rec['inventory_id'])
             proj_by_sub[(rec['field'], rec['strategic_tech'], rec['sub_tech'])].append(rec['inventory_id'])
     order25 = [(t['field'], stech_norm(t['name'])) for t in p25_2['techs']]
     for f in FIELDS:
-        fo = {'name': f, 'techs': []}
+        fo = {'name': f, 'techs': [], 'projects': sorted(set(proj_by_field.get(f, []))), 'lv4_summary_2026': (tax['lv4_summary_2026'] or {}).get(f)}
         for (ff, tn) in order25:
             if ff != f:
                 continue
             t = {'name': tn, 'desc': None, 'desc_source': None, 'subs': []}
-            for src, d in (('2026', desc26.get(tn)), ('2025', t25.get((ff, tn))), ('2024', t24.get((ff, tn))), ('2023', t23.get((ff, tn)))):
+            for src, d in (('2026', lv1_26.get((f, tn))), ('2025', t25.get((ff, tn))), ('2024', t24.get((ff, tn))), ('2023', t23.get((ff, tn)))):
                 if d and d.get('desc'):
                     t['desc'] = d['desc']; t['desc_source'] = src; break
-            # sub techs: 2026 Lv2 (AI) else 2025 subdefs
             subs = []
-            if f == '인공지능' and lv2_26.get(tn):
-                for n in lv2_26[tn]:
-                    subs.append({'code': n['code'], 'name': n['name'], 'desc': n['desc'], 'desc_source': '2026',
-                                 'lv3': [{'code': m['code'], 'name': m['name'], 'desc': m['desc']} for m in lv3_26.get(n['name'], [])]})
-            # merge 2025 subdefs (names may differ slightly)
+            for n in lv2_26.get((f, tn), []):
+                subs.append({'code': n['code'], 'name': n['name'], 'desc': n['desc'], 'desc_source': '2026',
+                             'lv3': [{'code': m['code'], 'name': m['name'], 'desc': m['desc']} for m in lv3_26.get((f, n['name']), [])]})
             for sd in subdefs.get((ff, tn), []):
                 hit = None
                 for s_ in subs:
-                    if norm_name(s_['name']) == norm_name(sd['name']) or norm_name(sd['name']) in norm_name(s_['name']) or norm_name(s_['name']) in norm_name(sd['name']):
+                    a, b = norm_name(s_['name']), norm_name(sd['name'])
+                    if a == b or (len(b) > 3 and b in a) or (len(a) > 3 and a in b):
                         hit = s_; break
                 if hit:
                     hit['desc_2025'] = sd['desc']
                 else:
                     subs.append({'code': str(sd['order']), 'name': sd['name'], 'desc': sd['desc'], 'desc_source': '2025', 'lv3': []})
-            # project links per sub tech
             for s_ in subs:
                 ids = []
                 for (pf, pt, ps), lst in proj_by_sub.items():
-                    if pf == f and pt == tn and ps and (norm_name(ps) == norm_name(s_['name']) or norm_name(ps) in norm_name(s_['name']) or norm_name(s_['name']) in norm_name(ps)):
-                        ids += lst
+                    if pf == f and pt == tn and ps:
+                        a, b = norm_name(ps), norm_name(s_['name'])
+                        if a == b or (len(b) > 3 and b in a) or (len(a) > 3 and a in b):
+                            ids += lst
                 s_['projects'] = sorted(set(ids))
             t['subs'] = subs
-            t['projects'] = sorted({pid for (pf, pt, ps), lst in proj_by_sub.items() if pf == f and pt == tn for pid in lst})
+            t['projects'] = sorted(set(proj_by_tech.get((f, tn), [])))
             fo['techs'].append(t)
         tax['fields'].append(fo)
-    # legacy 2022
     kt_by = defaultdict(list)
     for k in p22['ktechs']:
         kt_by[(k['field'], k['stech'])].append(k)
@@ -472,33 +478,53 @@ def main():
             fo['techs'].append({'name': t['name'], 'desc': t['desc'],
                                 'core_techs': [{'name': k['name'], 'desc': k['desc'], 'projects': sorted(set(proj22.get(k['name'], [])))} for k in kt_by[(f, t['name'])]]})
         tax['legacy_2022']['fields'].append(fo)
+    # 2023 국방기술 (name + 명세) grouped by 국방전략기술, with linked projects
+    kt23 = defaultdict(list)
+    for k in p23['ktechs']:
+        kt23[(k['field'], stech_norm(k['stech']))].append(k)
+    proj23 = defaultdict(list)
+    for rec in ordered:
+        ed = rec['editions'].get('2023')
+        if ed:
+            for k in ed.get('core_techs', []):
+                proj23[k].append(rec['inventory_id'])
+    for fo in tax['fields']:
+        for t in fo['techs']:
+            t['defense_techs_2023'] = [{'name': k['name'], 'desc': k['desc'], 'projects': sorted(set(proj23.get(k['name'], [])))} for k in kt23.get((fo['name'], t['name']), [])]
 
     # ------------------------------------------------------------------ stats
+    latest_recs = [r for r in ordered if r['in_latest_master_list']]
     stats = {
         'total_projects': len(ordered),
         'by_edition': {y: sum(1 for r in ordered if y in r['editions']) for y in EDITIONS},
         'by_status': dict(Counter(r['status'] for r in ordered)),
         'by_field': dict(Counter(r['field'] or '미분류(국방전략기술 미연계)' for r in ordered)),
+        'by_field_latest': dict(Counter(r['field'] or '미분류' for r in latest_recs)),
         'by_program_type': dict(Counter(r['program_type'] for r in ordered)),
+        'by_program_type_latest': dict(Counter(r['program_type'] for r in latest_recs)),
         'by_lead_type': dict(Counter(r['lead_type'] or '미상' for r in ordered)),
-        'budget_total_2025_master': round(sum(r['budget_100m_krw'] or 0 for r in ordered if r['in_latest_master_list']), 2),
-        'budget_by_field_2025_master': {},
-        'with_changes': sum(1 for r in ordered if r['changes']),
+        'latest_master_count': len(latest_recs),
+        'budget_total_latest_master': round(sum(r['budget_100m_krw'] or 0 for r in latest_recs), 2),
+        'budget_by_field_latest_master': {},
+        'with_description': sum(1 for r in ordered if r['description']),
+        'with_changes': sum(1 for r in ordered if [c for c in r['changes'] if c['item'] != '과제번호']),
         'ai_projects': sum(1 for r in ordered if r['field'] == '인공지능'),
-        'reference_year': REFERENCE_YEAR,
+        'ai_projects_latest': sum(1 for r in latest_recs if r['field'] == '인공지능'),
+        'reference_year': REFERENCE_YEAR, 'latest_edition': LATEST,
     }
     bf = defaultdict(float)
-    for r in ordered:
-        if r['in_latest_master_list'] and r['budget_100m_krw']:
+    for r in latest_recs:
+        if r['budget_100m_krw']:
             bf[r['field'] or '미분류'] += r['budget_100m_krw']
-    stats['budget_by_field_2025_master'] = {k: round(v, 2) for k, v in bf.items()}
+    stats['budget_by_field_latest_master'] = {k: round(v, 2) for k, v in bf.items()}
 
-    meta = {'generated_from': 'scripts/build_inventory.py', 'reference_year': REFERENCE_YEAR, 'editions': EDITIONS,
+    meta = {'generated_from': 'scripts/build_inventory.py', 'reference_year': REFERENCE_YEAR, 'latest_edition': LATEST, 'editions': EDITIONS,
             'record_count': len(ordered), 'notes': [
-                '각 과제의 현재 값(과제명·사업구분·기간·주관형태·예산·국방전략기술 분류)은 해당 과제가 수록된 가장 최신 기획서를 기준으로 한다.',
+                '각 과제의 현재 값(과제명·사업구분·기간·주관형태·예산·국방전략기술 분류·개요)은 해당 과제가 수록된 가장 최신 기획서를 기준으로 한다.',
                 '과제번호는 기획서 발간 연도마다 다시 매겨지므로 연도별 과제번호는 editions 아래에 보관하고, 사이트용 식별자는 KDTI-#### 를 별도 부여한다.',
-                '상태(status)는 2026년을 기준으로 사업기간으로부터 산출한 값이며, 기획서에 명시된 종료/진행 표기(2023년판 진행과제·예정과제)는 editions.status_tag 에 보관한다.',
-                '원문 PDF는 Google Drive 연동으로 앞부분(권별 76~132쪽)만 텍스트로 추출할 수 있었다. 추출 범위는 meta.editions.coverage 참조.',
+                '상태(status)는 2026년을 기준으로 사업기간으로부터 산출한 값이며, 기획서에 명시된 진행/예정 표기(’23-’37)는 editions.status_tag 에 보관한다.',
+                '국방전략기술 분야는 ’26-’40 과제 목록 기준, 국방전략기술·세부기술은 ’25-’39 제2장(없으면 ’24-’38, ’23-’37) 기준이다.',
+                '’22-’36 기획서는 Google Drive 텍스트 변환(앞부분 약 150쪽)으로 제2장만 반영되었다. 나머지 네 권은 PDF 전문을 변환해 제2장·제3장·부록을 모두 반영했다.',
             ]}
     with open(os.path.join(OUT, 'inventory.json'), 'w', encoding='utf-8') as f:
         json.dump({'meta': meta, 'stats': stats, 'projects': ordered}, f, ensure_ascii=False, indent=1)
@@ -507,10 +533,10 @@ def main():
     with open(os.path.join(OUT, 'stats.json'), 'w', encoding='utf-8') as f:
         json.dump(stats, f, ensure_ascii=False, indent=1)
 
-    # CSV (OMB 인벤토리 스타일 : 1행 = 1과제)
     cols = ['inventory_id', 'name', 'program_type', 'program_subtype', 'lead_type', 'start_year', 'end_year', 'duration_months', 'budget_100m_krw',
-            'field', 'strategic_tech', 'sub_tech', 'status', 'status_note', 'in_latest_master_list', 'first_edition', 'latest_edition', 'editions_listed',
-            'project_no_2022', 'project_no_2023', 'project_no_2024', 'project_no_2025', 'legacy_2022_field', 'legacy_2022_tech', 'linked_core_techs', 'name_variants', 'changes']
+            'field', 'strategic_tech', 'sub_tech', 'weapon_system_field', 'tech_field', 'status', 'status_note', 'in_latest_master_list', 'first_edition', 'latest_edition', 'editions_listed',
+            'project_no_2022', 'project_no_2023', 'project_no_2024', 'project_no_2025', 'project_no_2026', 'legacy_2022_field', 'legacy_2022_tech', 'linked_core_techs',
+            'name_variants', 'description', 'research_items', 'changes']
     with open(os.path.join(OUT, 'inventory.csv'), 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.writer(f)
         w.writerow(cols)
@@ -518,8 +544,7 @@ def main():
             row = []
             for c in cols:
                 if c.startswith('project_no_'):
-                    y = c[-4:]
-                    row.append(r['editions'].get(y, {}).get('project_no', ''))
+                    row.append(r['editions'].get(c[-4:], {}).get('project_no', ''))
                 elif c in ('editions_listed', 'linked_core_techs', 'name_variants'):
                     row.append('; '.join(map(str, r[c] or [])))
                 elif c == 'changes':
@@ -529,7 +554,7 @@ def main():
                     row.append('' if v is None else v)
             w.writerow(row)
     print('records', len(ordered))
-    print('stats', json.dumps(stats, ensure_ascii=False))
+    print('stats', json.dumps({k: v for k, v in stats.items() if k not in ('budget_by_field_latest_master',)}, ensure_ascii=False))
 
 
 if __name__ == '__main__':
